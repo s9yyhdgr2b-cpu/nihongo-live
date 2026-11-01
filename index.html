@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#101827">
+  <meta name="description" content="일본어 음성을 한국어로 실시간 번역하는 모바일 웹앱">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="icon" href="./icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./styles.css">
+  <title>Nihongo Live</title>
+</head>
+<body>
+  <main class="app">
+    <header class="topbar">
+      <div class="brand"><span class="brand-mark">語</span><div><h1>Nihongo Live</h1><p>일본어 실시간 통역</p></div></div>
+      <button id="installBtn" class="icon-btn" hidden aria-label="앱 설치">설치</button>
+    </header>
+
+    <section class="status-card">
+      <div class="status-line"><span id="statusDot" class="dot"></span><span id="statusText">대기 중</span><span class="spacer"></span><span class="lang-pill">日本語 → 한국어</span></div>
+      <p id="supportNote" class="support-note">시작 버튼을 누르면 마이크 권한을 요청합니다.</p>
+      <div class="controls">
+        <button id="startBtn" class="primary">번역 시작</button>
+        <button id="pauseBtn" class="secondary" disabled>일시정지</button>
+      </div>
+    </section>
+
+    <section class="settings">
+      <label class="toggle"><input id="speakToggle" type="checkbox" checked><span class="switch"></span><span>한국어 음성으로 읽기</span></label>
+      <label class="toggle"><input id="autoScrollToggle" type="checkbox" checked><span class="switch"></span><span>자동 스크롤</span></label>
+      <button id="clearBtn" class="text-btn">기록 지우기</button>
+    </section>
+
+    <section class="translation-area" aria-live="polite">
+      <div class="section-heading"><h2>실시간 번역</h2><span id="countLabel">0개 문장</span></div>
+      <div id="liveCard" class="live-card">
+        <div class="label-ja">듣고 있는 일본어</div>
+        <p id="liveJapanese" class="live-ja">일본어 음성이 여기에 표시됩니다.</p>
+        <div class="divider"></div>
+        <div class="label-ko">한국어 번역</div>
+        <p id="liveKorean" class="live-ko">번역 결과가 여기에 표시됩니다.</p>
+      </div>
+      <div id="history" class="history"></div>
+    </section>
+
+    <footer><span>마이크 입력 방식 · 일본어 자동 감지</span><span id="engineLabel">음성 인식 엔진 확인 중</span></footer>
+  </main>
+  <script src="./app.js"></script>
+</body>
+</html>
