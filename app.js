@@ -1,7 +1,8 @@
 
 (() => {
   const $ = id => document.getElementById(id);
-  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const SpeechRecognition =
+    window.SpeechRecognition || window.webkitSpeechRecognition;
 
   const startBtn = $("startBtn");
   const pauseBtn = $("pauseBtn");
@@ -14,19 +15,30 @@
   const countLabel = $("countLabel");
 
   let recognition = null;
+  let stoppingRecognition = null;
+
   let running = false;
   let manuallyStopped = true;
+  let startPending = false;
+
   let sessionId = 0;
   let restartTimer = null;
   let translationTimer = null;
   let requestId = 0;
+
   let interimText = "";
   let lastCommitted = "";
   let history = [];
 
   try {
-    history = JSON.parse(localStorage.getItem("nihongo-live-history") || "[]");
-  } catch {}
+    history = JSON.parse(
+      localStorage.getItem("nihongo-live-history") || "[]"
+    );
+
+    if (!Array.isArray(history)) history = [];
+  } catch {
+    history = [];
+  }
 
   renderHistory();
 
@@ -134,6 +146,7 @@
         });
 
         history = history.slice(-150);
+
         persist();
         renderHistory();
 
@@ -159,9 +172,32 @@
   }
 
   function startRecognition(mySession) {
-    if (!running || manuallyStopped || mySession !== sessionId) return;
+    if (!running || manuallyStopped || mySession !== sessionId) {
+      return;
+    }
 
-    const rec = new SpeechRecognition();
+    // 이전 음성 인식이 종료 중이면 새 인식을 시작하지 않음
+    if (stoppingRecognition) {
+      startPending = true;
+      return;
+    }
+
+    let rec;
+
+    try {
+      rec = new SpeechRecognition();
+    } catch (err) {
+      running = false;
+      manuallyStopped = true;
+
+      setStatus("음성 인식 시작 실패");
+      supportNote.textContent =
+        "음성 인식 기능을 만들 수 없습니다. 브라우저를 확인해 주세요.";
+
+      updateButtons();
+      return;
+    }
+
     recognition = rec;
 
     rec.lang = "ja-JP";
@@ -185,38 +221,48 @@
       ) return;
 
       let interim = "";
+      const finalTexts = [];
 
       for (let i = event.resultIndex; i < event.results.length; i++) {
-        const transcript = event.results[i][0].transcript;
+        const transcript = event.results[i][0].transcript.trim();
+
+        if (!transcript) continue;
 
         if (event.results[i].isFinal) {
-          const clean = transcript.trim();
-
-          if (clean) {
-            clearTimeout(translationTimer);
-            translate(clean, true);
-          }
+          finalTexts.push(transcript);
         } else {
           interim += transcript;
         }
       }
 
-      interimText = interim;
-
-      if (interimText.trim()) {
-        liveJapanese.textContent = interimText.trim();
-
+      // 확정된 문장은 한 번에 번역하고 기록
+      if (finalTexts.length > 0) {
         clearTimeout(translationTimer);
 
-        translationTimer = setTimeout(() => {
-          if (
-            running &&
-            mySession === sessionId &&
-            interimText.trim()
-          ) {
-            translate(interimText, false);
-          }
-        }, 650);
+        translate(finalTexts.join(" "), true);
+      }
+
+      interimText = interim.trim();
+
+      if (interimText) {
+        liveJapanese.textContent = interimText;
+
+        // 확정 문장이 없는 경우에만 중간 번역 실행
+        if (finalTexts.length === 0) {
+          clearTimeout(translationTimer);
+
+          const currentSession = mySession;
+
+          translationTimer = setTimeout(() => {
+            if (
+              running &&
+              currentSession === sessionId &&
+              interimText
+            ) {
+              translate(interimText, false);
+            }
+          }, 650);
+        }
       }
     };
 
@@ -235,7 +281,8 @@
       };
 
       supportNote.textContent =
-        messages[event.error] || `음성 인식 오류: ${event.error}`;
+        messages[event.error] ||
+        `음성 인식 오류: ${event.error}`;
 
       if (
         event.error === "not-allowed" ||
@@ -246,6 +293,7 @@
         sessionId++;
 
         clearTimeout(restartTimer);
+
         recognition = null;
 
         setStatus("마이크 권한 확인 필요");
@@ -275,7 +323,9 @@
     try {
       rec.start();
     } catch (err) {
-      if (rec === recognition) recognition = null;
+      if (rec === recognition) {
+        recognition = null;
+      }
 
       running = false;
       manuallyStopped = true;
@@ -288,6 +338,7 @@
     }
   }
 
+  // 번역 시작
   startBtn.addEventListener("click", () => {
     if (!SpeechRecognition) {
       supportNote.textContent =
@@ -308,13 +359,24 @@
     updateButtons();
     setStatus("마이크 연결 중", true);
 
-    startRecognition(sessionId);
+    if (stoppingRecognition) {
+      // 기존 인식이 완전히 종료된 뒤 다시 시작
+      startPending = true;
+      setStatus("음성 인식 재시작 준비 중", true);
+      supportNote.textContent =
+        "이전 음성 인식이 종료되면 자동으로 다시 시작합니다.";
+    } else {
+      startPending = false;
+      startRecognition(sessionId);
+    }
   });
 
+  // 일시정지
   pauseBtn.addEventListener("click", () => {
     running = false;
     manuallyStopped = true;
     sessionId++;
+    startPending = false;
 
     clearTimeout(restartTimer);
     clearTimeout(translationTimer);
@@ -325,12 +387,34 @@
     recognition = null;
 
     if (oldRecognition) {
-      oldRecognition.onend = null;
+      stoppingRecognition = oldRecognition;
+
+      // 기존 인식이 완전히 끝났을 때만 다음 시작 허용
+      oldRecognition.onend = () => {
+        if (stoppingRecognition === oldRecognition) {
+          stoppingRecognition = null;
+        }
+
+        if (startPending && running && !manuallyStopped) {
+          startPending = false;
+          startRecognition(sessionId);
+        }
+      };
+
       oldRecognition.onerror = null;
 
       try {
         oldRecognition.stop();
-      } catch {}
+      } catch {
+        if (stoppingRecognition === oldRecognition) {
+          stoppingRecognition = null;
+        }
+
+        if (startPending && running && !manuallyStopped) {
+          startPending = false;
+          startRecognition(sessionId);
+        }
+      }
     }
 
     if ("speechSynthesis" in window) {
@@ -344,6 +428,7 @@
     updateButtons();
   });
 
+  // 기록 삭제
   $("clearBtn").addEventListener("click", () => {
     if (!confirm("번역 기록을 모두 지울까요?")) return;
 
@@ -351,7 +436,9 @@
     lastCommitted = "";
     interimText = "";
 
+    // 진행 중인 이전 번역 응답 무효화
     requestId++;
+
     clearTimeout(translationTimer);
 
     persist();
@@ -369,11 +456,12 @@
     }
   });
 
+  // 홈 화면 설치
   let deferredPrompt;
 
-  window.addEventListener("beforeinstallprompt", e => {
-    e.preventDefault();
-    deferredPrompt = e;
+  window.addEventListener("beforeinstallprompt", event => {
+    event.preventDefault();
+    deferredPrompt = event;
     $("installBtn").hidden = false;
   });
 
@@ -387,23 +475,28 @@
     $("installBtn").hidden = true;
   });
 
+  // HTTPS 확인
   if (!window.isSecureContext && location.hostname !== "localhost") {
     supportNote.textContent =
       "마이크 사용을 위해 HTTPS 주소로 접속해야 합니다.";
   }
 
+  // 음성 인식 지원 확인
   if (!SpeechRecognition) {
     $("engineLabel").textContent = "지원 브라우저 확인 필요";
     supportNote.textContent =
       "이 브라우저에서 음성 인식 기능을 사용할 수 없습니다.";
+
     startBtn.disabled = true;
   } else {
     $("engineLabel").textContent = "브라우저 음성 인식";
   }
 
+  // 서비스 워커 등록
   if (
     "serviceWorker" in navigator &&
-    (location.protocol === "https:" || location.hostname === "localhost")
+    (location.protocol === "https:" ||
+      location.hostname === "localhost")
   ) {
     navigator.serviceWorker.register("./sw.js").catch(() => {});
   }
